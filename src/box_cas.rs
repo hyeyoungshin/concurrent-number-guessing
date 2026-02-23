@@ -37,16 +37,26 @@ fn start_game(num_players: u32) -> GameState {
 }
 
 // Process a player's action and returns the new game state
-fn do_action(st: GameState, a: Action) -> GameState {
+// Original signature: GameState Action -> GameState
+// New signature: &GameState &Action -> GameState
+// Changed the signature after try_and_commit_action because 
+// I can't move GameState out of a Mutex in try_and_commit_action
+// The mutex owns the data. I can only
+// - Borrow it 
+// - Replace it 
+// Plus, the new signature is the functional update pattern in Rust 
+// Take &T and return T (new owned value)
+// This makes some cloning necessary
+fn do_action(st: &GameState, a: &Action) -> GameState {
     match st {
-        GameState::Over(_) => st,
+        GameState::Over(_) => st.clone(),
         GameState::InProgress(secret_num, hash) => {
-            if secret_num == a.guess {
+            if *secret_num == a.guess {
                 GameState::Over(a.player_id)
             } else {
                 let new_hash = hash.update(a.player_id, a.guess);
                 println!("{:?}", new_hash);
-                GameState::InProgress(secret_num, new_hash)
+                GameState::InProgress(*secret_num, new_hash)
             }
         }
     }
@@ -128,30 +138,6 @@ fn game_over(st: &GameState) -> bool {
 }
 
 //
-// Main Game Loop
-//
-
-fn local_game() {
-  // Inner function that repeatedly processes turns
-  fn game_loop (st: GameState) {
-    // 1. Ask which player is taking a turn
-    println!("which player");
-    let player_id = get_valid_input(NUM_PLAYERS);
-    // 2. Show this player the current state
-    state_view(&st, &player_id);
-
-    if !game_over(&st) {
-        let a = Action { player_id, guess: get_valid_input(MAX_NUM_TO_GUESS) };
-        let new_st = do_action(st, a);
-        game_loop(new_st)
-    }
-  }
-
-  game_loop(start_game(NUM_PLAYERS))
-}
-
-
-//
 // Server and Multi-threading
 //
 use std::net::{TcpListener, TcpStream};
@@ -180,6 +166,7 @@ fn server() {
     }
 }
 
+// fn handle_client(mut reader: impl BufRead, mut writer: impl Writ, player_id: u32, shared_game_state: Arc<Mutex<GameState>>) {
 fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStream>, player_id: u32, shared_game_state: Arc<Mutex<GameState>>) {
     writeln!(writer, "You are player {}", player_id).unwrap();
     
@@ -188,7 +175,7 @@ fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStr
         // Multiple threads can read simultaneously 
         let current_st = {
             let state = shared_game_state.lock().unwrap();
-            state.clone() // clone to release lock quickly
+            state.clone() // copy the data so I can use it after the lock is released
         }; // lock released here
 
         // Send the current state view to THIS player
@@ -215,12 +202,16 @@ fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStr
 fn try_and_commit_action(game_state: &Arc<Mutex<GameState>>, action: &Action) -> bool {
     // Read the current state from the box
     // Note: Another thread might change this before we commit!
-    let current_state = game_state.lock().unwrap();
+    let mut current_state = game_state.lock().unwrap();
 
+    // if game is already over, can't apply action
     if game_over(&current_state) {
-        false
-    } else {
-
+        false // action rejected
+    } else { 
+        // try to automatically update the box using CAS
+        // box-cas! does: "if box still contains currentstate, replace with new state"
+        // Returns true if successful, false if another thread changed it first
+        *current_state = do_action(&*current_state, action);
+        true
     }
-
 }
