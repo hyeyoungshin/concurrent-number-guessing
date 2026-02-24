@@ -92,7 +92,6 @@ fn state_view(st: &GameState, player_id: &PlayerId) -> String {
 // Input Parsing and Validation
 // 
 
-
 fn parse_number_input(str: String, max: u32) -> Result<u32, String> {
     let num = str.trim().parse::<u32>();
     match num {
