@@ -94,7 +94,7 @@ fn state_view(st: &GameState, player_id: &PlayerId) -> String {
 
 
 fn parse_number_input(str: String, max: u32) -> Result<u32, String> {
-    let num = str.parse::<u32>();
+    let num = str.trim().parse::<u32>();
     match num {
         Ok(n) if n < max && n >= 0 => Ok(n),
         _ => Err(String::from("Parsing failed")),
@@ -110,13 +110,8 @@ fn get_valid_input(max: u32, mut in_port: impl BufRead, out_port: impl Write) ->
 
   match len {
     Ok(_) => {
-        let number = input.trim().parse::<u32>();
-        match number {
-            Ok(num) if num < max => num,
-            Ok(_) => {
-                println!("Invalid input. Try again.");
-                get_valid_input(max, in_port, out_port)
-            },
+        match parse_number_input(input, max) {
+            Ok(num) => num,
             Err(msg) => {
                 println!("{msg}. Try again.");
                 get_valid_input(max, in_port, out_port)
@@ -146,7 +141,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::io::{BufReader, BufRead, Write, LineWriter};
 
-fn server() {
+pub fn server() {
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
 
     // This is the SHARED STATE that all player threads will access
