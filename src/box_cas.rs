@@ -96,14 +96,14 @@ fn state_view(st: &GameState, player_id: &PlayerId) -> String {
 fn parse_number_input(str: String, max: u32) -> Result<u32, String> {
     let num = str.trim().parse::<u32>();
     match num {
-        Ok(n) if n < max && n >= 0 => Ok(n),
+        Ok(n) if n < max => Ok(n),
         _ => Err(String::from("Parsing failed")),
     }
 }
 
 // Keeps asking for input until a valid number is entered
 // It's used to get 1) player id and 2) guesses
-fn get_valid_input(max: u32, mut in_port: impl BufRead, out_port: impl Write) -> u32 {
+fn get_valid_input(max: u32, mut in_port: impl BufRead, mut out_port: impl Write) -> u32 {
   let mut input = String::new();
   
   let len =  in_port.read_line(&mut input);
@@ -113,13 +113,13 @@ fn get_valid_input(max: u32, mut in_port: impl BufRead, out_port: impl Write) ->
         match parse_number_input(input, max) {
             Ok(num) => num,
             Err(msg) => {
-                println!("{msg}. Try again.");
+                writeln!(out_port, "{msg}. Try again.").unwrap();
                 get_valid_input(max, in_port, out_port)
             }
         }
     },
     Err(msg) => {
-        println!("{msg}. Try again.");
+        writeln!(out_port, "{msg}. Try again.").unwrap();
         get_valid_input(max, in_port, out_port)
     }
   }
