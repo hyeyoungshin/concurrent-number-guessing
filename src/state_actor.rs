@@ -30,8 +30,6 @@ const NUM_PLAYERS: u32 = 3;
 fn start_game(num_players: u32) -> GameState {
     let mut rng = rand::rng();
     let answer = rng.random_range(0..MAX_NUM_TO_GUESS);
-
-    println!("Guess a number from 0 to {MAX_NUM_TO_GUESS}");
     
     GameState::InProgress(answer, HashMap::new())
 }
@@ -74,9 +72,9 @@ fn state_view(st: &GameState, player_id: &PlayerId) -> String {
     match st {
         GameState::Over(winner) => {
             if winner == player_id {
-                String::from("You won! Game over.")
+                format!("You won! Game over.")
             } else {
-                String::from("Player {player_id} won.")
+                format!("Player {winner} won.")
             }
         }, 
         GameState::InProgress(secret_num, hash) => {
@@ -109,7 +107,7 @@ fn parse_number_input(str: String, max: u32) -> Result<u32, String> {
 
 // Keeps asking for input until a valid number is entered
 // It's used to get 1) player id and 2) guesses
-fn get_valid_input(max: u32, mut in_port: impl BufRead, mut out_port: impl Write) -> u32 {
+fn get_valid_input(max: u32, in_port: &mut impl BufRead, out_port: &mut impl Write) -> u32 {
   let mut input = String::new();
   
   let len =  in_port.read_line(&mut input);
@@ -142,7 +140,7 @@ struct Request {
 }
 enum Msg {
     DisplayState(PlayerId),
-    ProcessAction(PlayerId, Action)
+    ProcessAction(Action)
 }
 
 enum Response {
@@ -162,25 +160,53 @@ fn sync_message(state_update_channel: &Sender<Request>, msg: Msg) -> Response {
     resp_rx.recv().unwrap()
 }
 
-fn handle_request(request: &Request, state_rx: Receiver<Request>) -> Response {
-    let mut state = start_game(NUM_PLAYERS);
-    let mut last_displayed_state_for_players = HashMap::new();
-
-    match request.msg {
+// State Actor (Business logic)
+fn handle_request(request: &Request, state: &mut GameState, last_displayed: &mut HashMap<PlayerId, GameState>) -> Response {
+    match &request.msg {
         Msg::DisplayState(player_id) => {
-            last_displayed_state_for_players.insert(player_id, state);
-            Response::DisplayState(state)
-         },
-         Msg::ProcessAction(player_id, a) => {
-            if game_over(state) {
-                Response::OtherPlayerWon(state)
+            last_displayed.insert(*player_id, state.clone());
+            Response::DisplayState(state.clone())
+        },
+        Msg::ProcessAction(a) => {
+            if game_over(&state) {
+                Response::OtherPlayerWon(state.clone())
             } else {
-                state = do_action(state, &a);
+                *state = do_action(&state, &a);
                 Response::ActionCommitted
             }
         }
     }
 }
+
+// Client Actor
+fn handle_client(reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpStream>, player_id: u32, state_update_channel: &Sender<Request>) {
+    writeln!(writer, "You are player {}", player_id).unwrap();
+    writeln!(writer, "Guess a number from 0 to {MAX_NUM_TO_GUESS}").unwrap();
+    
+    loop {
+        match sync_message(state_update_channel, Msg::DisplayState(player_id)) {
+            Response::DisplayState(state) => {
+                writeln!(writer, "{}", state_view(&state, &player_id)).unwrap();
+                if game_over(&state) {
+                    break;
+                }
+                
+                let a = Action { player_id, guess: get_valid_input(MAX_NUM_TO_GUESS, reader, writer)};
+                match sync_message(state_update_channel, Msg::ProcessAction(a)) {
+                    Response::OtherPlayerWon(end_state) => {
+                        writeln!(writer, "Sorry, another player won in the meantime!").unwrap();
+                    },
+                    Response::ActionCommitted => { 
+                        // Guess recorded, game continues — loop again
+                    },
+                    _ => { panic!("response mismatch"); }
+                }
+            }
+            _ => { panic!("response mismatch"); }
+        }
+    }
+}
+
 
 //
 // Server and Multi-threading
@@ -194,74 +220,27 @@ use std::u32::MAX;
 
 pub fn server() {
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
-
     let (state_tx, state_rx) = mpsc::channel::<Request>();
 
     // state actor
     thread::spawn(move || {
+        let mut state = start_game(NUM_PLAYERS);
+        let mut last_displayed = HashMap::new();
         // Loop receiving messages
         for request in state_rx {
-            let response = handle_request(&request, state_rx);
+            let response = handle_request(&request, &mut state, &mut last_displayed);
             request.reply_to.send(response).unwrap();
         }
     });
 
     for player_id in 0..NUM_PLAYERS {
-        
         let (stream, _addr) = listener.accept().unwrap();
-
-        let reader = BufReader::new(stream.try_clone().unwrap());
-        let writer = LineWriter::new(stream);
-
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = LineWriter::new(stream);
         let state_tx = state_tx.clone();
-
         // Each client gets a cloned of state_tx
         thread::spawn(move || { 
-            handle_client(reader, writer, player_id, &state_tx);
+            handle_client(&mut reader, &mut writer, player_id, &state_tx);
         });
-    }
-}
-
-// Client-handling actor
-fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStream>, player_id: u32, state_update_channel: &Sender<Request>) {
-    writeln!(writer, "You are player {}", player_id).unwrap();
-    
-    loop {
-        match sync_message(state_update_channel, Msg::DisplayState(player_id)) {
-            Response::DisplayState(state) => {
-                writeln!(writer, "{}", state_view(&state, &player_id)).unwrap();
-                if !game_over(&state) {
-                    let a = Action { player_id, guess: get_valid_input(MAX_NUM_TO_GUESS, reader, writer)};
-                    match sync_message(state_update_channel, Msg::ProcessAction(player_id, a)) {
-                        Response::OtherPlayerWon(end_state) => {
-                            writeln!(writer, "Sorry, another player won in the meantime!").unwrap();
-                            writeln!(writer, "{}", state_view(&end_state, &player_id)).unwrap();
-                        },
-                        Response::ActionCommitted => { break; }
-                        _ => { panic!("response mismatch"); }
-                    }
-                }
-            }
-            _ => { panic!("response mismatch"); }
-        }
-    }
-}
-
-// Atomically updates the game state with an action
-// Uses Compare-And_Swap (CAS) for lock-free concurrency in the corresponding Racket code
-fn try_and_commit_action(game_state: &Arc<Mutex<GameState>>, action: &Action) -> bool {
-    // Read the current state from the box
-    // Note: Another thread might change this before we commit!
-    let mut current_state = game_state.lock().unwrap();
-
-    // if game is already over, can't apply action
-    if game_over(&current_state) {
-        false // action rejected
-    } else { 
-        // try to automatically update the box using CAS
-        // box-cas! does: "if box still contains currentstate, replace with new state"
-        // Returns true if successful, false if another thread changed it first
-        *current_state = do_action(&*current_state, action);
-        true
     }
 }
