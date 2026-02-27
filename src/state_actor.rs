@@ -1,138 +1,9 @@
-use rand::prelude::*;
 use im::HashMap;
-
-// Data Definitions
-
-#[derive(PartialEq, Clone)]
-enum GameState {
-    InProgress(SecretNumber, HashMap<PlayerId, Guess>), // game is on-going
-    Over(PlayerId), // winner                           // game is over
-}
-
-type SecretNumber = u32;
-type Guess = u32;
-type PlayerId = u32;
-
-struct Action {
-    player_id: PlayerId,
-    guess: u32
-}
-
-const MAX_NUM_TO_GUESS: u32 = 20;
-const NUM_PLAYERS: u32 = 3;
-
-//
-// Game Logic
-//
-
-// Creates a new game with a random secret number
-// add parameter num_players: u32
-fn start_game(num_players: u32) -> GameState {
-    let mut rng = rand::rng();
-    let answer = rng.random_range(0..MAX_NUM_TO_GUESS);
-    
-    GameState::InProgress(answer, HashMap::new())
-}
-
-fn game_over(st: &GameState) -> bool {
-    match st {
-        GameState::Over(_) => true,
-        _ => false,
-    }
-}
-
-// Process a player's action and returns the new game state
-// Original signature: GameState Action -> GameState
-// New signature: &GameState &Action -> GameState
-// Changed the signature after try_and_commit_action because 
-// I can't move GameState out of a Mutex in try_and_commit_action
-// The mutex owns the data. I can only
-// - Borrow it 
-// - Replace it 
-// Plus, the new signature is the functional update pattern in Rust 
-// Take &T and return T (new owned value)
-// This makes some cloning necessary
-fn do_action(st: &GameState, a: &Action) -> GameState {
-    match st {
-        GameState::Over(_) => st.clone(),
-        GameState::InProgress(secret_num, hash) => {
-            if *secret_num == a.guess {
-                GameState::Over(a.player_id)
-            } else {
-                let new_hash = hash.update(a.player_id, a.guess);
-                println!("{:?}", new_hash);
-                GameState::InProgress(*secret_num, new_hash)
-            }
-        }
-    }
-}
-
-// Prints the message that should be shown to a specific player
-fn state_view(st: &GameState, player_id: &PlayerId) -> String {
-    match st {
-        GameState::Over(winner) => {
-            if winner == player_id {
-                format!("You won! Game over.")
-            } else {
-                format!("Player {winner} won.")
-            }
-        }, 
-        GameState::InProgress(secret_num, hash) => {
-            let last_guess = hash.get(player_id);
-            match last_guess {
-                Some(guess) => {
-                    if secret_num < guess {
-                        String::from("Guess lower.")
-                    } else {
-                        String::from("Guess higher")
-                    }
-                }, 
-                None => String::from("Guess a number.")
-            }
-        }
-    }
-}
-
-//
-// Input Parsing and Validation
-// 
-
-fn parse_number_input(str: String, max: u32) -> Result<u32, String> {
-    let num = str.trim().parse::<u32>();
-    match num {
-        Ok(n) if n < max => Ok(n),
-        _ => Err(String::from("Parsing failed")),
-    }
-}
-
-// Keeps asking for input until a valid number is entered
-// It's used to get 1) player id and 2) guesses
-fn get_valid_input(max: u32, in_port: &mut impl BufRead, out_port: &mut impl Write) -> u32 {
-  let mut input = String::new();
-  
-  let len =  in_port.read_line(&mut input);
-
-  match len {
-    Ok(_) => {
-        match parse_number_input(input, max) {
-            Ok(num) => num,
-            Err(msg) => {
-                writeln!(out_port, "{msg}. Try again.").unwrap();
-                get_valid_input(max, in_port, out_port)
-            }
-        }
-    },
-    Err(msg) => {
-        writeln!(out_port, "{msg}. Try again.").unwrap();
-        get_valid_input(max, in_port, out_port)
-    }
-  }
-}
+use crate::data_type::*;
 
 // Synchronous actors in terms of channels
-use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc::{Sender};
 use std::sync::mpsc;
-
 
 struct Request {
     msg: Msg,
@@ -191,7 +62,7 @@ fn handle_client(reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpS
                     break;
                 }
                 
-                let a = Action { player_id, guess: get_valid_input(MAX_NUM_TO_GUESS, reader, writer)};
+                let a = Action::new(player_id, get_valid_input(MAX_NUM_TO_GUESS, reader, writer));
                 match sync_message(state_update_channel, Msg::ProcessAction(a)) {
                     Response::OtherPlayerWon(end_state) => {
                         writeln!(writer, "Sorry, another player won in the meantime!").unwrap();
@@ -224,7 +95,7 @@ pub fn server() {
 
     // state actor
     thread::spawn(move || {
-        let mut state = start_game(NUM_PLAYERS);
+        let mut state = start_game();
         let mut last_displayed = HashMap::new();
         // Loop receiving messages
         for request in state_rx {

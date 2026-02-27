@@ -1,33 +1,13 @@
 use rand::prelude::*;
 use im::HashMap;
-
-// Data Definitions
-
-#[derive(PartialEq, Clone)]
-enum GameState {
-    InProgress(SecretNumber, HashMap<PlayerId, Guess>), // game is on-going
-    Over(PlayerId), // winner                           // game is over
-}
-
-type SecretNumber = u32;
-type Guess = u32;
-type PlayerId = u32;
-
-struct Action {
-    player_id: PlayerId,
-    guess: u32
-}
-
-const MAX_NUM_TO_GUESS: u32 = 20;
-const NUM_PLAYERS: u32 = 3;
-
+use crate::data_type::*;
 //
 // Game Logic
 //
 
 // Creates a new game with a random secret number
 // add parameter num_players: u32
-fn start_game(num_players: u32) -> GameState {
+fn start_game() -> GameState {
     let mut rng = rand::rng();
     let answer = rng.random_range(0..MAX_NUM_TO_GUESS);
 
@@ -51,10 +31,10 @@ fn do_action(st: &GameState, a: &Action) -> GameState {
     match st {
         GameState::Over(_) => st.clone(),
         GameState::InProgress(secret_num, hash) => {
-            if *secret_num == a.guess {
-                GameState::Over(a.player_id)
+            if *secret_num == a.get_guess() {
+                GameState::Over(a.get_player_id())
             } else {
-                let new_hash = hash.update(a.player_id, a.guess);
+                let new_hash = hash.update(a.get_player_id(), a.get_guess());
                 println!("{:?}", new_hash);
                 GameState::InProgress(*secret_num, new_hash)
             }
@@ -144,7 +124,7 @@ pub fn server() {
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
 
     // This is the SHARED STATE that all player threads will access
-    let shared_game_state = Arc::new(Mutex::new(start_game(NUM_PLAYERS)));
+    let shared_game_state = Arc::new(Mutex::new(start_game()));
 
     for player_id in 0..NUM_PLAYERS {
         let (stream, _addr) = listener.accept().unwrap();
@@ -161,7 +141,7 @@ pub fn server() {
 }
 
 // fn handle_client(mut reader: impl BufRead, mut writer: impl Writ, player_id: u32, shared_game_state: Arc<Mutex<GameState>>) {
-fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStream>, player_id: u32, shared_game_state: Arc<Mutex<GameState>>) {
+fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStream>, player_id: PlayerId, shared_game_state: Arc<Mutex<GameState>>) {
     writeln!(writer, "You are player {}", player_id).unwrap();
     
     loop {
@@ -181,7 +161,7 @@ fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStr
         }
 
         // If game is not over, get this player's next guess
-        let action = Action { player_id: player_id, guess: get_valid_input(MAX_NUM_TO_GUESS, &mut reader, &mut writer) };
+        let action = Action::new(player_id, get_valid_input(MAX_NUM_TO_GUESS, &mut reader, &mut writer));
         
         // CRITICAL: Try to atomically update shared state
         // This might fail if another player wins while we're processing
