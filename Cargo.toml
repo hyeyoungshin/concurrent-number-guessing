@@ -1,0 +1,10 @@
+[package]
+name = "number_guessing"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+im = "15.1.0"
+libc = "0.2.182"
+rand = "0.10.0"
+socket2 = "0.6.2"
