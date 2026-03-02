@@ -1,5 +1,3 @@
-use rand::prelude::*;
-use im::HashMap;
 use crate::data_type::*;
 
 //
@@ -9,7 +7,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
-use std::io::{BufReader, BufRead, Write, LineWriter};
+use std::io::{BufReader, Write, LineWriter};
 
 pub fn server() {
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
@@ -34,10 +32,10 @@ pub fn server() {
 // fn handle_client(mut reader: impl BufRead, mut writer: impl Writ, player_id: u32, shared_game_state: Arc<Mutex<GameState>>) {
 fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStream>, player_id: PlayerId, shared_game_state: Arc<Mutex<GameState>>) {
     writeln!(writer, "You are player {}", player_id).unwrap();
-    
+
     loop {
         // THREAD-SAFE READ: Get current game state from Mutex (shared box)
-        // Multiple threads can read simultaneously 
+        // Multiple threads can read simultaneously
         let current_st = {
             let state = shared_game_state.lock().unwrap();
             state.clone() // copy the data so I can use it after the lock is released
@@ -53,7 +51,7 @@ fn handle_client(mut reader: BufReader<TcpStream>, mut writer: LineWriter<TcpStr
 
         // If game is not over, get this player's next guess
         let action = Action::new(player_id, get_valid_input(MAX_NUM_TO_GUESS, &mut reader, &mut writer));
-        
+
         // CRITICAL: Try to atomically update shared state
         // This might fail if another player wins while we're processing
         if !try_and_commit_action(&shared_game_state, &action) {
@@ -72,7 +70,7 @@ fn try_and_commit_action(game_state: &Arc<Mutex<GameState>>, action: &Action) ->
     // if game is already over, can't apply action
     if game_over(&current_state) {
         false // action rejected
-    } else { 
+    } else {
         // try to automatically update the box using CAS
         // box-cas! does: "if box still contains currentstate, replace with new state"
         // Returns true if successful, false if another thread changed it first
