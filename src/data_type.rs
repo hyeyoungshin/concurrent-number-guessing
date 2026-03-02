@@ -7,16 +7,17 @@ use rand::prelude::*;
 // Data Definitions
 //
 
+pub type SecretNumber = u32;
+pub type Guess = u32;
+pub type PlayerId = u32;
+
 #[derive(PartialEq, Clone)]
 pub enum GameState {
     InProgress(SecretNumber, HashMap<PlayerId, Guess>), // game is on-going
     Over(PlayerId), // winner                           // game is over
 }
 
-pub type SecretNumber = u32;
-pub type Guess = u32;
-pub type PlayerId = u32;
-
+#[derive(PartialEq)]
 pub struct Action {
     player_id: PlayerId,
     guess: u32
