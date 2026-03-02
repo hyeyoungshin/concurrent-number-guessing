@@ -52,7 +52,6 @@ fn handle_request(request: &Request, state: &mut GameState, last_displayed: &mut
 // Client Actor
 fn handle_client(reader: &mut BufReader<TcpStream>, writer: &mut LineWriter<TcpStream>, player_id: u32, state_update_channel: &Sender<Request>) {
     writeln!(writer, "You are player {}", player_id).unwrap();
-    writeln!(writer, "Guess a number from 0 to {MAX_NUM_TO_GUESS}").unwrap();
     
     loop {
         match sync_message(state_update_channel, Msg::DisplayState(player_id)) {

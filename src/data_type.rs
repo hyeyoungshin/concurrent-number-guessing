@@ -106,7 +106,7 @@ pub fn state_view(st: &GameState, player_id: &PlayerId) -> String {
                         String::from("Guess higher")
                     }
                 }, 
-                None => String::from("Guess a number.")
+                None => format!("Guess a number from 0 to {}.", MAX_NUM_TO_GUESS - 1)
             }
         }
     }
