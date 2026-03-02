@@ -32,7 +32,9 @@ fn play_client(addr: &str, strategy: fn(&str) -> Option<u32>) -> Vec<String> {
         }
 
         if let Some(guess) = strategy(&line) {
-            writeln!(writer, "{}", guess).unwrap();
+            if writeln!(writer, "{}", guess).is_err() {
+                break; // server closed connection
+            }
         }
     }
 
@@ -160,4 +162,19 @@ fn test_box_cas_server() {
 #[test]
 fn test_state_actor_server() {
     run_server_test(number_guessing::state_actor::server_with_config);
+}
+
+#[test]
+fn test_event_loop_server() {
+    run_server_test(number_guessing::event_loop::server_with_config);
+}
+
+#[test]
+fn test_event_loop_spawn_local_server() {
+    run_server_test(number_guessing::event_loop_spawn_local::server_with_config);
+}
+
+#[test]
+fn test_event_loop_futures_unordered_server() {
+    run_server_test(number_guessing::event_loop_futures_unordered::server_with_config);
 }
