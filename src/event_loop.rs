@@ -10,6 +10,13 @@ struct Client {
     fd: i32,
 }
 
+fn process_guess(client: &mut Client, data: &[u8]) {
+    // 1. parse data into a guess
+    // 2. compare against secret number
+    // 3. update client state
+    // 4. write response back to client.fd
+}
+
 // loops forever, asking the OS: 
 // "Which of my connections have something happening right now?" and then 
 // handles each one briefly before looping again.
@@ -25,7 +32,6 @@ fn event_loop (server_fd: i32) {
             FD_SET(server_fd, &mut read_set);
         }
 
-        
         let mut highest_fd = server_fd;
 
         for (&fd, _) in &clients {
