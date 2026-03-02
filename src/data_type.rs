@@ -49,8 +49,12 @@ pub const NUM_PLAYERS: u32 = 3;
 pub fn start_game() -> GameState {
     let mut rng = rand::rng();
     let answer = rng.random_range(0..MAX_NUM_TO_GUESS);
-    
+
     GameState::InProgress(answer, HashMap::new())
+}
+
+pub fn start_game_with_secret(secret: u32) -> GameState {
+    GameState::InProgress(secret, HashMap::new())
 }
 
 pub fn game_over(st: &GameState) -> bool {

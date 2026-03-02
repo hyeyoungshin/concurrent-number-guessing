@@ -10,10 +10,14 @@ use std::thread;
 use std::io::{BufReader, Write, LineWriter};
 
 pub fn server() {
-    let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+    server_with_config("127.0.0.1:7878", start_game());
+}
+
+pub fn server_with_config(addr: &str, initial_state: GameState) {
+    let listener = TcpListener::bind(addr).unwrap();
 
     // This is the SHARED STATE that all player threads will access
-    let shared_game_state = Arc::new(Mutex::new(start_game()));
+    let shared_game_state = Arc::new(Mutex::new(initial_state));
 
     for player_id in 0..NUM_PLAYERS {
         let (stream, _addr) = listener.accept().unwrap();

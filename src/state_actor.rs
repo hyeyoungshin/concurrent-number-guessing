@@ -89,12 +89,16 @@ use std::io::{BufReader, BufRead, Write, LineWriter};
 use std::u32::MAX;
 
 pub fn server() {
-    let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+    server_with_config("127.0.0.1:7878", start_game());
+}
+
+pub fn server_with_config(addr: &str, initial_state: GameState) {
+    let listener = TcpListener::bind(addr).unwrap();
     let (state_tx, state_rx) = mpsc::channel::<Request>();
 
     // state actor
     thread::spawn(move || {
-        let mut state = start_game();
+        let mut state = initial_state;
         let mut last_displayed = HashMap::new();
         // Loop receiving messages
         for request in state_rx {
@@ -109,7 +113,7 @@ pub fn server() {
         let mut writer = LineWriter::new(stream);
         let state_tx = state_tx.clone();
         // Each client gets a cloned of state_tx
-        thread::spawn(move || { 
+        thread::spawn(move || {
             handle_client(&mut reader, &mut writer, player_id, &state_tx);
         });
     }
